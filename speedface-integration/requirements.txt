@@ -1,0 +1,59 @@
+# SpeedFace-V5L Integration — Phase 1 + Phase 2 + Phase 3
+# Python >= 3.10 required
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# Primary ZKTeco communication library
+#   Library : pyzk (unofficial ZKTeco LAN/TCP library)
+#   PyPI    : https://pypi.org/project/pyzk/
+#   GitHub  : https://github.com/fananimi/pyzk
+#   License : MIT
+#   Verified: SpeedFace-V5L fw=Ver 6.60 Aug 28 2020, platform=ZAM180_TFT
+# ─────────────────────────────────────────────────────────────────────────────
+pyzk==0.9
+
+# Environment variable loading from .env file
+#   PyPI    : https://pypi.org/project/python-dotenv/
+#   License : BSD-3-Clause
+python-dotenv==1.0.1
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 3 — REST API layer
+# ─────────────────────────────────────────────────────────────────────────────
+
+# FastAPI — modern async web framework with automatic OpenAPI docs
+#   PyPI    : https://pypi.org/project/fastapi/
+#   License : MIT
+#   Note    : 0.136+ supports pydantic 2.13+ which has Python 3.14 wheels
+fastapi==0.136.0
+
+# Uvicorn — ASGI server to run FastAPI
+#   PyPI    : https://pypi.org/project/uvicorn/
+#   License : BSD-3-Clause
+uvicorn==0.32.1
+
+# Pydantic — data validation (bundled with FastAPI, pinned for stability)
+#   PyPI    : https://pypi.org/project/pydantic/
+#   License : MIT
+#   Note    : 2.13.4 includes Python 3.14 pre-built wheels (no Rust needed)
+pydantic==2.13.4
+
+# APScheduler — background sync scheduler (interval-based worker loop)
+#   PyPI    : https://pypi.org/project/APScheduler/
+#   License : MIT
+APScheduler==3.10.4
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Testing (Phase 2 + Phase 3)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# pytest — test runner
+#   PyPI    : https://pypi.org/project/pytest/
+#   License : MIT
+pytest==8.3.5
+
+# httpx — async-capable HTTP client used by FastAPI TestClient
+#   PyPI    : https://pypi.org/project/httpx/
+#   License : BSD-3-Clause
+httpx==0.27.2
+
+# pytest-anyio / anyio not needed — FastAPI TestClient is sync-compatible

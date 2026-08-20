@@ -1,0 +1,2 @@
+# This directory holds the local SQLite database (speedface.db).
+# The database file itself is excluded by .gitignore.
