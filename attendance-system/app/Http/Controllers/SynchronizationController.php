@@ -77,15 +77,17 @@ class SynchronizationController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Synchronisation started. Refresh the page in a moment to see results.',
+            'message' => 'Synchronisation started.',
             'run_id'  => $run->id,
         ], 202);
     }
 
     /**
      * Poll sync status — called by JS after triggering a sync.
+     * Accepts an optional run_id query param so it can close out the
+     * local SyncRun record once the Python sync completes.
      */
-    public function status(): JsonResponse
+    public function status(Request $request): JsonResponse
     {
         $result = $this->api->getSyncStatus();
 
@@ -97,9 +99,37 @@ class SynchronizationController extends Controller
             ]);
         }
 
+        $data       = $result['data']['data'] ?? [];
+        $inProgress = $data['sync_in_progress'] ?? false;
+
+        // When the Python sync has finished and we know the local run that
+        // triggered it, update that SyncRun record with the real results.
+        $runId = (int) $request->query('run_id', 0);
+        if ($runId > 0 && ! $inProgress) {
+            $run = SyncRun::find($runId);
+            if ($run && $run->status === 'running') {
+                $lastRun = $data['last_run'] ?? [];
+                $status  = $data['last_sync_status'] ?? 'failed';
+
+                $startedAt   = $run->started_at;
+                $completedAt = now();
+                $durationSec = $startedAt ? $completedAt->diffInSeconds($startedAt) : null;
+
+                $run->update([
+                    'status'           => in_array($status, ['success', 'partial', 'failed']) ? $status : 'failed',
+                    'completed_at'     => $completedAt,
+                    'duration_seconds' => $durationSec,
+                    'records_read'     => $lastRun['records_read']     ?? 0,
+                    'records_inserted' => $lastRun['records_inserted'] ?? 0,
+                    'records_skipped'  => $lastRun['records_skipped']  ?? 0,
+                    'records_failed'   => $lastRun['records_failed']   ?? 0,
+                ]);
+            }
+        }
+
         return response()->json([
             'ok'   => true,
-            'data' => $result['data']['data'] ?? [],
+            'data' => $data,
         ]);
     }
 }
