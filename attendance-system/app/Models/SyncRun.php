@@ -22,7 +22,7 @@ class SyncRun extends Model
         return [
             'started_at'       => 'datetime',
             'completed_at'     => 'datetime',
-            'duration_seconds' => 'decimal:2',
+            'duration_seconds' => 'float',
         ];
     }
 
