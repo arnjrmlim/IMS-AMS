@@ -22,7 +22,7 @@ class SyncRun extends Model
         return [
             'started_at'       => 'datetime',
             'completed_at'     => 'datetime',
-            'duration_seconds' => 'float',
+            'duration_seconds' => 'decimal:2',
         ];
     }
 
@@ -52,11 +52,12 @@ class SyncRun extends Model
         if ($this->duration_seconds === null) {
             return '—';
         }
-        if ($this->duration_seconds < 60) {
-            return round($this->duration_seconds, 1).'s';
+        $seconds = (float) $this->duration_seconds;
+        if ($seconds < 60) {
+            return round($seconds, 1).'s';
         }
-        $m = (int) ($this->duration_seconds / 60);
-        $s = (int) ($this->duration_seconds % 60);
+        $m = (int) ($seconds / 60);
+        $s = (int) ($seconds % 60);
         return "{$m}m {$s}s";
     }
 }
