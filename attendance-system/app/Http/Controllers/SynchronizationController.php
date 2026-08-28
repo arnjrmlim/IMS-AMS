@@ -27,6 +27,12 @@ class SynchronizationController extends Controller
         $apiOnline   = $statusResult['ok'] ?? false;
         $offlineMsg  = $apiOnline ? null : ($statusResult['message'] ?? 'Integration service is unavailable.');
 
+        // Close out any stuck 'running' runs if the Python side shows no sync in progress.
+        // This handles the case where the user navigated away before the JS poll finished.
+        if ($apiOnline && ! ($syncStatus['sync_in_progress'] ?? false)) {
+            $this->closeStuckRuns($syncStatus ?? []);
+        }
+
         // Local sync runs
         $localRuns = SyncRun::with(['device', 'triggeredBy'])
             ->orderByDesc('id')
@@ -108,22 +114,7 @@ class SynchronizationController extends Controller
         if ($runId > 0 && ! $inProgress) {
             $run = SyncRun::find($runId);
             if ($run && $run->status === 'running') {
-                $lastRun = $data['last_run'] ?? [];
-                $status  = $data['last_sync_status'] ?? 'failed';
-
-                $startedAt   = $run->started_at;
-                $completedAt = now();
-                $durationSec = $startedAt ? $completedAt->diffInSeconds($startedAt) : null;
-
-                $run->update([
-                    'status'           => in_array($status, ['success', 'partial', 'failed']) ? $status : 'failed',
-                    'completed_at'     => $completedAt,
-                    'duration_seconds' => $durationSec,
-                    'records_read'     => $lastRun['records_read']     ?? 0,
-                    'records_inserted' => $lastRun['records_inserted'] ?? 0,
-                    'records_skipped'  => $lastRun['records_skipped']  ?? 0,
-                    'records_failed'   => $lastRun['records_failed']   ?? 0,
-                ]);
+                $this->finaliseRun($run, $data);
             }
         }
 
@@ -131,5 +122,48 @@ class SynchronizationController extends Controller
             'ok'   => true,
             'data' => $data,
         ]);
+    }
+
+    // ── Private helpers ─────────────────────────────────────────────────────
+
+    /**
+     * Write the final status/counts onto a SyncRun record.
+     * Uses UTC for both timestamps to avoid timezone-offset duration bugs.
+     */
+    private function finaliseRun(SyncRun $run, array $data): void
+    {
+        $lastRun     = $data['last_run'] ?? [];
+        $status      = $data['last_sync_status'] ?? 'failed';
+        $completedAt = now()->utc();
+
+        // started_at is cast to Carbon — convert to UTC before diffing
+        $startedAt   = $run->started_at?->utc();
+        $durationSec = $startedAt ? max(0, $completedAt->diffInSeconds($startedAt)) : null;
+
+        $run->update([
+            'status'           => in_array($status, ['success', 'partial', 'failed']) ? $status : 'failed',
+            'completed_at'     => $completedAt,
+            'duration_seconds' => $durationSec,
+            'records_read'     => $lastRun['records_read']     ?? 0,
+            'records_inserted' => $lastRun['records_inserted'] ?? 0,
+            'records_skipped'  => $lastRun['records_skipped']  ?? 0,
+            'records_failed'   => $lastRun['records_failed']   ?? 0,
+        ]);
+    }
+
+    /**
+     * Close any runs that are stuck in 'running' state when the Python side
+     * reports no sync is in progress. This handles the case where the user
+     * navigated away before the JS poll had a chance to finalise the run.
+     */
+    private function closeStuckRuns(array $syncStatus): void
+    {
+        $stuckRuns = SyncRun::where('status', 'running')
+            ->where('started_at', '<', now()->subMinutes(2)) // only close runs older than 2 min
+            ->get();
+
+        foreach ($stuckRuns as $run) {
+            $this->finaliseRun($run, $syncStatus);
+        }
     }
 }
