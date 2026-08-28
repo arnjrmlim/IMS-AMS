@@ -58,6 +58,10 @@ class RolesAndPermissionsSeeder extends Seeder
             ['group' => 'devices',       'slug' => 'view_devices',          'name' => 'View Devices'],
             ['group' => 'devices',       'slug' => 'manage_devices',        'name' => 'Manage Devices'],
 
+            // Device Users
+            ['group' => 'devices',       'slug' => 'view_device_users',     'name' => 'View Device Users'],
+            ['group' => 'devices',       'slug' => 'manage_device_users',   'name' => 'Manage Device Users'],
+
             // Sync
             ['group' => 'sync',          'slug' => 'view_sync',             'name' => 'View Sync Status'],
             ['group' => 'sync',          'slug' => 'run_sync',              'name' => 'Trigger Synchronisation'],
@@ -92,7 +96,7 @@ class RolesAndPermissionsSeeder extends Seeder
             'view_dashboard', 'view_employees', 'manage_employees',
             'view_branches', 'view_departments',
             'view_attendance', 'view_sync', 'run_sync',
-            'view_devices',
+            'view_devices', 'view_device_users', 'manage_device_users',
         ];
         $createdRoles['hr']->permissions()->syncWithoutDetaching(
             collect($hrPermissions)->map(fn ($s) => $createdPermissions[$s]->id)->toArray()
@@ -102,6 +106,7 @@ class RolesAndPermissionsSeeder extends Seeder
         $supervisorPermissions = [
             'view_dashboard', 'view_employees',
             'view_attendance', 'view_sync', 'view_devices',
+            'view_device_users',
         ];
         $createdRoles['supervisor']->permissions()->syncWithoutDetaching(
             collect($supervisorPermissions)->map(fn ($s) => $createdPermissions[$s]->id)->toArray()

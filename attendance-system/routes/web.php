@@ -6,6 +6,7 @@ use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DeviceController;
+use App\Http\Controllers\DeviceUserMappingController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\SynchronizationController;
 use Illuminate\Support\Facades\Route;
@@ -70,5 +71,28 @@ Route::middleware(['auth', 'active'])->group(function (): void {
         Route::get('/{employee}', [EmployeeController::class, 'show'])
             ->middleware('permission:view_employees')
             ->name('show');
+    });
+
+    // Device Users — Phase 4A (application-side only, SpeedFace is never modified)
+    Route::prefix('device-users')->name('device-users.')->group(function (): void {
+        Route::get('/', [DeviceUserMappingController::class, 'index'])
+            ->middleware('permission:view_device_users')
+            ->name('index');
+
+        Route::get('/employee-search', [DeviceUserMappingController::class, 'employeeSearch'])
+            ->middleware('permission:view_device_users')
+            ->name('employee-search');
+
+        Route::get('/{deviceUser}', [DeviceUserMappingController::class, 'show'])
+            ->middleware('permission:view_device_users')
+            ->name('show');
+
+        Route::get('/{deviceUser}/edit', [DeviceUserMappingController::class, 'edit'])
+            ->middleware('permission:manage_device_users')
+            ->name('edit');
+
+        Route::put('/{deviceUser}', [DeviceUserMappingController::class, 'update'])
+            ->middleware('permission:manage_device_users')
+            ->name('update');
     });
 });

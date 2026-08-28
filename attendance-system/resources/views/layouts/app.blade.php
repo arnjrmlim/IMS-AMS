@@ -139,6 +139,14 @@
             </a>
         </li>
         @endcan
+        @can('view_device_users')
+        <li class="nav-item">
+            <a href="{{ route('device-users.index') }}"
+               class="nav-link {{ request()->routeIs('device-users.*') ? 'active' : '' }}">
+                <i class="bi bi-person-badge"></i> Device Users
+            </a>
+        </li>
+        @endcan
         @can('view_sync')
         <li class="nav-item">
             <a href="{{ route('sync.index') }}"

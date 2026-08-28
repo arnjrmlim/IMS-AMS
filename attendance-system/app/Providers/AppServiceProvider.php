@@ -23,6 +23,7 @@ class AppServiceProvider extends ServiceProvider
             'view_branches', 'manage_branches', 'view_departments', 'manage_departments',
             'view_employees', 'manage_employees',
             'view_devices', 'manage_devices',
+            'view_device_users', 'manage_device_users',
             'view_sync', 'run_sync',
             'view_attendance',
             'manage_settings', 'view_audit_logs',
