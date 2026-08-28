@@ -3,6 +3,15 @@
 
 @section('content')
 
+@if(! $apiOnline)
+<div class="api-offline-banner mb-3">
+    <i class="bi bi-exclamation-triangle-fill me-1 text-warning"></i>
+    <strong>Integration service is offline.</strong>
+    Device users cannot be refreshed from the device.
+    Run <code>python run.py serve</code> in the <code>speedface-integration</code> directory.
+</div>
+@endif
+
 <div class="d-flex align-items-center justify-content-between mb-3">
     <h4 class="mb-0 fw-semibold">
         <i class="bi bi-person-badge me-2 text-primary"></i>Device Users

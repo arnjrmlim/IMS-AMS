@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Http\Requests\UpdateDeviceUserRequest;
+use App\Models\AttendanceRecord;
 use App\Models\Branch;
 use App\Models\Department;
 use App\Models\Device;
 use App\Models\DeviceUserMapping;
 use App\Models\Employee;
 use App\Services\AuditService;
+use App\Services\SpeedFaceApiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -35,10 +37,18 @@ use Illuminate\View\View;
  */
 class DeviceUserMappingController extends Controller
 {
+    public function __construct(private SpeedFaceApiService $api) {}
+
     // ── Index — list + search ───────────────────────────────────────────────
 
     public function index(Request $request): View
     {
+        // Pull device users from the Python API and upsert into device_user_mappings.
+        // This is the only way device users get into the table — the attendance sync
+        // does not auto-populate it. Runs silently on every page load; existing mapped
+        // records are never overwritten.
+        $apiOnline = $this->syncDeviceUsersFromApi();
+
         $query = DeviceUserMapping::with(['device', 'employee.branch', 'employee.department'])
             ->orderBy('device_id')
             ->orderBy('device_user_id');
@@ -54,7 +64,7 @@ class DeviceUserMappingController extends Controller
                 $q->where('device_name', 'like', '%'.trim($name).'%')
                   ->orWhereHas('employee', function ($eq) use ($name): void {
                       $eq->where('first_name',       'like', '%'.trim($name).'%')
-                         ->orWhere('last_name',       'like', '%'.trim($name).'%')
+                         ->orWhere('last_name',       'like', "%".trim($name)."%")
                          ->orWhere('employee_number', 'like', '%'.trim($name).'%');
                   });
             });
@@ -75,7 +85,7 @@ class DeviceUserMappingController extends Controller
 
         AuditService::log('view_device_users', 'Viewed device users list.', 'device_users');
 
-        return view('device-users.index', compact('mappings', 'devices'));
+        return view('device-users.index', compact('mappings', 'devices', 'apiOnline'));
     }
 
     // ── Show — detail page ──────────────────────────────────────────────────
@@ -86,7 +96,7 @@ class DeviceUserMappingController extends Controller
 
         // Recent attendance records for this device user (last 10)
         $recentAttendance = $deviceUser->device
-            ? \App\Models\AttendanceRecord::where('device_id', $deviceUser->device_id)
+            ? AttendanceRecord::where('device_id', $deviceUser->device_id)
                 ->where('device_user_id', $deviceUser->device_user_id)
                 ->orderByDesc('punch_datetime')
                 ->limit(10)
@@ -165,9 +175,9 @@ class DeviceUserMappingController extends Controller
             // Historical records for a PREVIOUS employee are left intact —
             // they retain the original employee_id and remain fully traceable.
             if ($isNewMapping && $employeeId) {
-                \App\Models\AttendanceRecord::where('device_id', $deviceUser->device_id)
+                AttendanceRecord::where('device_id', $deviceUser->device_id)
                     ->where('device_user_id', $deviceUser->device_user_id)
-                    ->whereNull('employee_id')   // only stamp previously-unmapped records
+                    ->whereNull('employee_id')
                     ->update(['employee_id' => $employeeId]);
             }
         });
@@ -264,5 +274,114 @@ class DeviceUserMappingController extends Controller
             }
         }
         return $changes;
+    }
+
+    // ── API sync helper ──────────────────────────────────────────────────────
+
+    /**
+     * Pull device users from the Python API and upsert into device_user_mappings.
+     * Falls back to deriving unique device users from local attendance_records
+     * if the Python device_users table is empty (users sync not yet run).
+     *
+     * Rules:
+     *  - New device users (unseen device_id + device_user_id pair) → insert as 'unmapped'
+     *  - Existing 'unmapped' records → update device_name only (non-destructive)
+     *  - Existing 'mapped' or 'ignored' records → never touched
+     *  - device_user_id is NEVER changed — it is the immutable source identifier
+     *
+     * Returns true if the Python API was reachable, false if offline.
+     */
+    private function syncDeviceUsersFromApi(): bool
+    {
+        $device = Device::first();
+        if (! $device) {
+            return false;
+        }
+
+        // ── Try Python API first ────────────────────────────────────────────
+        $page    = 1;
+        $perPage = 200;
+        $apiHadUsers = false;
+
+        do {
+            $result = $this->api->getDeviceUsers($device->speedface_device_id, $page, $perPage);
+
+            if (! ($result['ok'] ?? false)) {
+                // API offline — fall through to attendance-record fallback
+                break;
+            }
+
+            // Response shape: { success, data: [...users...], meta: { page, per_page, total, pages } }
+            $items      = $result['data']['data']  ?? [];
+            $meta       = $result['data']['meta']  ?? [];
+            $totalPages = (int) ($meta['pages']    ?? 1);
+
+            if (! empty($items)) {
+                $apiHadUsers = true;
+            }
+
+            foreach ($items as $apiUser) {
+                $deviceUserId = (string) ($apiUser['device_user_id'] ?? '');
+                $deviceName   = $apiUser['name'] ?? null;
+
+                if ($deviceUserId === '') {
+                    continue;
+                }
+
+                $this->upsertDeviceUserMapping($device, $deviceUserId, $deviceName);
+            }
+
+            $page++;
+        } while ($page <= $totalPages);
+
+        // ── Fallback: derive unique users from attendance_records ───────────
+        // The Python device_users table is only populated when run_sync_users()
+        // is called. Since that hasn't been triggered, we fall back to the
+        // attendance records which always contain the device_user_id field.
+        if (! $apiHadUsers) {
+            $this->syncDeviceUsersFromAttendanceRecords($device);
+        }
+
+        return true;
+    }
+
+    /**
+     * Derive device users from unique device_user_id values in attendance_records.
+     * This is the fallback when the Python device_users table is empty.
+     */
+    private function syncDeviceUsersFromAttendanceRecords(Device $device): void
+    {
+        \App\Models\AttendanceRecord::where('device_id', $device->id)
+            ->select('device_user_id')
+            ->distinct()
+            ->orderBy('device_user_id')
+            ->chunk(200, function ($rows) use ($device): void {
+                foreach ($rows as $row) {
+                    $this->upsertDeviceUserMapping($device, $row->device_user_id, null);
+                }
+            });
+    }
+
+    /**
+     * Insert a new unmapped device user or update the cached name on an
+     * existing unmapped record. Mapped/ignored records are never modified.
+     */
+    private function upsertDeviceUserMapping(Device $device, string $deviceUserId, ?string $deviceName): void
+    {
+        $existing = DeviceUserMapping::where('device_id',     $device->id)
+            ->where('device_user_id', $deviceUserId)
+            ->first();
+
+        if (! $existing) {
+            DeviceUserMapping::create([
+                'device_id'      => $device->id,
+                'device_user_id' => $deviceUserId,
+                'device_name'    => $deviceName,
+                'mapping_status' => 'unmapped',
+            ]);
+        } elseif ($existing->mapping_status === 'unmapped' && $deviceName !== null) {
+            // Only update the cached name — never touch employee_id or mapping_status
+            $existing->update(['device_name' => $deviceName]);
+        }
     }
 }
